@@ -1,1 +1,1 @@
-# V_Medithon_TeamQube
+# Medithon_TeamQube
