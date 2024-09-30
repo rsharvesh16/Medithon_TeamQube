@@ -1,40 +1,44 @@
+import streamlit as st
 import pytesseract
 from pdf2image import convert_from_bytes
 from PIL import Image
 import fitz  # PyMuPDF
 import logging
-import boto3
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.schema import Document
+from langchain_community.document_loaders import PyPDFLoader
+from langchain.vectorstores import FAISS
 from langchain.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
 from langchain.chains.summarize import load_summarize_chain
-from langchain_community.vectorstores import FAISS
-from langchain_community.llms import Bedrock
-from langchain_aws import BedrockEmbeddings
-from flask import Flask, request, jsonify, render_template
-import warnings
-import io
-
-app = Flask(__name__)
-
-# Suppress warnings
-warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
+from langchain.schema import Document
+import streamlit_lottie as st_lottie
+import requests
+from streamlit_option_menu import option_menu
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize AWS Bedrock client
-bedrock = boto3.client('bedrock-runtime', region_name='us-east-1')
-
-# Initialize BedrockEmbeddings
-bedrock_embeddings = BedrockEmbeddings(model_id="amazon.titan-embed-text-v1", client=bedrock)
-
-# Set Tesseract path
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
-# OCR Function
+# Load Lottie animation
+def load_lottieurl(url: str):
+    try:
+        r = requests.get(url)
+        r.raise_for_status()  # Raises a HTTPError if the status is 4xx, 5xx
+        return r.json()
+    except Exception as e:
+        st.error(f"Error loading Lottie animation: {str(e)}")
+        return None
+
+# When using the function:
+lottie_medical = load_lottieurl("https://lottie.host/503a0611-68e0-469c-bbd4-91a9cf6b10c1/Ilr3bzdupn.json")
+if lottie_medical:
+    st_lottie.st_lottie(lottie_medical, speed=1, height=200, key="initial_medical_coding")
+else:
+    st.warning("Failed to load Lottie animation.")
+
+# OCR Function (unchanged)
 def perform_ocr(image):
     try:
         text = pytesseract.image_to_string(image)
@@ -45,7 +49,7 @@ def perform_ocr(image):
         logger.error(f"OCR failed: {str(e)}")
         return ""
 
-# PDF Processing Function
+# PDF Processing Function (unchanged)
 def process_pdf(file):
     text = ""
     try:
@@ -75,12 +79,12 @@ def process_pdf(file):
         logger.error(f"PDF processing failed: {str(e)}")
         raise
 
-# Data Ingestion Implementation
-def data_ingestion(file):
-    if file.filename.endswith('.pdf'):
-        text = process_pdf(file)
-    elif file.filename.lower().endswith(('.png', '.jpg', '.jpeg')):
-        image = Image.open(file)
+# Data Ingestion Implementation (unchanged)
+def data_ingestion(uploaded_file):
+    if uploaded_file.name.endswith('.pdf'):
+        text = process_pdf(uploaded_file)
+    elif uploaded_file.name.lower().endswith(('.png', '.jpg', '.jpeg')):
+        image = Image.open(uploaded_file)
         text = perform_ocr(image)
     else:
         raise ValueError("Unsupported file type. Please upload a PDF or image file.")
@@ -94,7 +98,7 @@ def data_ingestion(file):
     docs = text_splitter.split_text(text)
     return [Document(page_content=t) for t in docs]
 
-# Vector Embedding and Vector Store Implementation
+# Vector Embedding and Vector Store Implementation (unchanged)
 def get_vector_store(docs, bedrock_embeddings):
     try:
         embeddings = bedrock_embeddings.embed_documents([doc.page_content for doc in docs])
@@ -104,13 +108,13 @@ def get_vector_store(docs, bedrock_embeddings):
         vectorstore_faiss = FAISS.from_documents(docs, bedrock_embeddings)
         return vectorstore_faiss
     except Exception as e:
-        logger.error(f"Error creating vector store: {str(e)}")
+        st.error(f"Error creating vector store: {str(e)}")
         raise
 
-# Summarization function
+# Summarization function (unchanged)
 def summarize_documents(docs, llm):
     chain = load_summarize_chain(llm, chain_type="map_reduce")
-    summary = chain.invoke(docs)
+    summary = chain.run(docs)
     return summary
 
 prompt_template = """
@@ -158,67 +162,101 @@ def get_response_llm(llm, vectorstore_faiss, query):
     answer = qa({"query": query})
     return answer['result']
 
-@app.route('/process_medical_coding', methods=['POST'])
-def api_process_medical_coding():
-    try:
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file uploaded'}), 400
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({'error': 'No file selected'}), 400
-        if file:
-            result = process_medical_coding(file, icd_vectorstore, get_llama3_llm, bedrock_embeddings)
-            return jsonify(result)
-    except Exception as e:
-        app.logger.error(f"Error in process_medical_coding: {str(e)}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
-    
-def process_medical_query(query, icd_vectorstore, get_llama3_llm):
-    try:
-        llm = get_llama3_llm()
-        icd_codes = get_response_llm(llm, icd_vectorstore, query)
+def process_medical_coding(st, icd_vectorstore, get_llama3_llm, bedrock_embeddings):
+    st.markdown("<h1 style='text-align: center; color: #4CAF50;'>Medical Coding Assistant</h1>", unsafe_allow_html=True)
+
+    # Load Lottie animation
+    lottie_medical = load_lottieurl("https://assets1.lottiefiles.com/packages/lf20_17lwcjll.json")
+    st_lottie.st_lottie(lottie_medical, speed=1, height=200, key="initial")
+
+    # Create tabs for file upload and user query
+    tab1, tab2 = st.tabs(["Upload Medical Report", "Enter Medical Query"])
+
+    with tab1:
+        st.markdown("<h3 style='color: #4CAF50;'>Upload Medical Report</h3>", unsafe_allow_html=True)
+        uploaded_file = st.file_uploader("", type=["pdf", "png", "jpg", "jpeg"])
         
-        return {
-            "icd_codes": icd_codes
-        }
-    except Exception as e:
-        logger.error(f"Error processing query: {str(e)}", exc_info=True)
-        return {"error": str(e)}
+        if uploaded_file:
+            st.success(f"File '{uploaded_file.name}' uploaded successfully!")
+    
+    with tab2:
+        st.markdown("<h3 style='color: #4CAF50;'>Enter Medical Query</h3>", unsafe_allow_html=True)
+        user_query = st.text_area("", height=100, placeholder="Enter your medical query here...")
 
+    if st.button("Process Input", key="process_button"):
+        if uploaded_file:
+            try:
+                with st.spinner("Processing uploaded file..."):
+                    docs = data_ingestion(uploaded_file)
+                    vectorstore = get_vector_store(docs, bedrock_embeddings)
+                    llm = get_llama3_llm()
+                    summary = summarize_documents(docs, llm)
+                    st.session_state.summary = summary
+                    st.session_state.vectorstore = vectorstore
+                    st.success("File processed successfully!")
+            except Exception as e:
+                logger.error(f"Error during processing: {str(e)}", exc_info=True)
+                st.error(f"An error occurred during processing: {str(e)}\n\nPlease check if the file is readable and contains extractable text.")
+        elif user_query:
+            st.session_state.user_query = user_query
+        else:
+            st.warning("Please upload a file or enter a query before processing.")
+
+    # Display summary and results
+    if 'summary' in st.session_state or 'user_query' in st.session_state:
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.markdown("<h2 style='color: #4CAF50;'>Results</h2>", unsafe_allow_html=True)
+
+        if 'summary' in st.session_state:
+            with st.expander("Document Summary", expanded=True):
+                st.markdown(f"<div style='background-color: #2C3E50; padding: 20px; border-radius: 10px;'>{st.session_state.summary}</div>", unsafe_allow_html=True)
+
+        with st.spinner("Generating ICD codes and disease information..."):
+            llm = get_llama3_llm()
+            if 'summary' in st.session_state:
+                response = get_response_llm(llm, icd_vectorstore, st.session_state.summary)
+            else:
+                response = get_response_llm(llm, icd_vectorstore, st.session_state.user_query)
+            
+            st.markdown("<h3 style='color: #4CAF50;'>Generated ICD Codes and Disease Information</h3>", unsafe_allow_html=True)
+            st.markdown(f"<div style='background-color: #2C3E50; padding: 20px; border-radius: 10px;'>{response}</div>", unsafe_allow_html=True)
+
+    # Footer
+    st.markdown("<br><hr>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #888;'>Made with ❤️ by Team Cube</p>", unsafe_allow_html=True)
+
+# Usage Example (Replace with actual function to get LLM)
 def get_llama3_llm():
-    try:
-        llm = Bedrock(model_id="meta.llama3-70b-instruct-v1:0", client=bedrock, model_kwargs={'max_gen_len': 2000})
-        return llm
-    except Exception as e:
-        print(f"Error initializing LLaMA 3 model: {str(e)}")
-        return None
+    from langchain.llms import OpenAI
+    return OpenAI(temperature=0.7)  # Placeholder for the actual LLM
 
-# Load FAISS index for ICD codes
-try:
-    icd_vectorstore = FAISS.load_local("faiss_index", bedrock_embeddings, allow_dangerous_deserialization=True)
-except Exception as e:
-    print(f"Error loading FAISS index: {str(e)}")
+# Main function to run the Streamlit app
+if __name__ == "__main__":
+    st.set_page_config(page_title="Medical Coding Assistant", layout="wide")
+    # Add custom CSS for dark theme
+    st.markdown("""
+    <style>
+    .stApp {
+        background-color: #1E1E1E;
+        color: #FFFFFF;
+    }
+    .stButton>button {
+        background-color: #4CAF50;
+        color: #FFFFFF;
+    }
+    .stTextInput>div>div>input, .stTextArea>div>div>textarea {
+        background-color: #2C3E50;
+        color: #FFFFFF;
+    }
+    .stSelectbox>div>div>select {
+        background-color: #2C3E50;
+        color: #FFFFFF;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Placeholder functions for demonstration
     icd_vectorstore = None
-
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-@app.route('/process_medical_coding', methods=['POST'])
-def api_process_medical_coding():
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file uploaded'}), 400
-    file = request.files['file']
-    result = process_medical_coding(file, icd_vectorstore, get_llama3_llm, bedrock_embeddings)
-    return jsonify(result)
-
-@app.route('/process_medical_query', methods=['POST'])
-def api_process_medical_query():
-    data = request.json
-    if 'query' not in data:
-        return jsonify({'error': 'No query provided'}), 400
-    result = process_medical_query(data['query'], icd_vectorstore, get_llama3_llm)
-    return jsonify(result)
-
-if __name__ == '__main__':
-    app.run(debug=True)
+    bedrock_embeddings = None
+    
+    process_medical_coding(st, icd_vectorstore, get_llama3_llm, bedrock_embeddings)
