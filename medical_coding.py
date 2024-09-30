@@ -1,21 +1,37 @@
-import streamlit as st
 import pytesseract
 from pdf2image import convert_from_bytes
 from PIL import Image
 import fitz  # PyMuPDF
 import logging
+import boto3
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import PyPDFLoader
-from langchain.vectorstores import FAISS
+from langchain.schema import Document
 from langchain.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
 from langchain.chains.summarize import load_summarize_chain
-from langchain.schema import Document
+from langchain_community.vectorstores import FAISS
+from langchain_community.llms import Bedrock
+from langchain_aws import BedrockEmbeddings
+from flask import Flask, request, jsonify, render_template
+import warnings
+import io
+
+app = Flask(__name__)
+
+# Suppress warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Initialize AWS Bedrock client
+bedrock = boto3.client('bedrock-runtime', region_name='us-east-1')
+
+# Initialize BedrockEmbeddings
+bedrock_embeddings = BedrockEmbeddings(model_id="amazon.titan-embed-text-v1", client=bedrock)
+
+# Set Tesseract path
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 # OCR Function
@@ -60,11 +76,11 @@ def process_pdf(file):
         raise
 
 # Data Ingestion Implementation
-def data_ingestion(uploaded_file):
-    if uploaded_file.name.endswith('.pdf'):
-        text = process_pdf(uploaded_file)
-    elif uploaded_file.name.lower().endswith(('.png', '.jpg', '.jpeg')):
-        image = Image.open(uploaded_file)
+def data_ingestion(file):
+    if file.filename.endswith('.pdf'):
+        text = process_pdf(file)
+    elif file.filename.lower().endswith(('.png', '.jpg', '.jpeg')):
+        image = Image.open(file)
         text = perform_ocr(image)
     else:
         raise ValueError("Unsupported file type. Please upload a PDF or image file.")
@@ -88,13 +104,13 @@ def get_vector_store(docs, bedrock_embeddings):
         vectorstore_faiss = FAISS.from_documents(docs, bedrock_embeddings)
         return vectorstore_faiss
     except Exception as e:
-        st.error(f"Error creating vector store: {str(e)}")
+        logger.error(f"Error creating vector store: {str(e)}")
         raise
 
 # Summarization function
 def summarize_documents(docs, llm):
     chain = load_summarize_chain(llm, chain_type="map_reduce")
-    summary = chain.run(docs)
+    summary = chain.invoke(docs)
     return summary
 
 prompt_template = """
@@ -142,53 +158,67 @@ def get_response_llm(llm, vectorstore_faiss, query):
     answer = qa({"query": query})
     return answer['result']
 
-def process_medical_coding(st, icd_vectorstore, get_llama3_llm, bedrock_embeddings):
-    st.title("Medical Coding Assistant")
-    st.markdown('<div class="sidebar-title">Upload Medical Report or Enter Query:</div>', unsafe_allow_html=True)
-
-    # Create columns for file upload and user query
-    col1, col2 = st.columns([2, 3])
-
-    with col1:
-        uploaded_file = st.file_uploader("Upload Medical Report", type=["pdf", "png", "jpg", "jpeg"])
+@app.route('/process_medical_coding', methods=['POST'])
+def api_process_medical_coding():
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file uploaded'}), 400
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        if file:
+            result = process_medical_coding(file, icd_vectorstore, get_llama3_llm, bedrock_embeddings)
+            return jsonify(result)
+    except Exception as e:
+        app.logger.error(f"Error in process_medical_coding: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
     
-    with col2:
-        user_query = st.text_input("Or enter your medical query:")
+def process_medical_query(query, icd_vectorstore, get_llama3_llm):
+    try:
+        llm = get_llama3_llm()
+        icd_codes = get_response_llm(llm, icd_vectorstore, query)
+        
+        return {
+            "icd_codes": icd_codes
+        }
+    except Exception as e:
+        logger.error(f"Error processing query: {str(e)}", exc_info=True)
+        return {"error": str(e)}
 
-    if st.button("Process Input"):
-        if uploaded_file:
-            try:
-                with st.spinner("Processing uploaded file..."):
-                    docs = data_ingestion(uploaded_file)
-                    vectorstore = get_vector_store(docs, bedrock_embeddings)
-                    llm = get_llama3_llm()
-                    summary = summarize_documents(docs, llm)
-                    st.session_state.summary = summary
-                    st.session_state.vectorstore = vectorstore
-                    st.success("File processed successfully!")
-            except Exception as e:
-                logger.error(f"Error during processing: {str(e)}", exc_info=True)
-                st.error(f"An error occurred during processing: {str(e)}\n\nPlease check if the file is readable and contains extractable text.")
-        elif user_query:
-            st.session_state.user_query = user_query
-        else:
-            st.warning("Please upload a file or enter a query before processing.")
+def get_llama3_llm():
+    try:
+        llm = Bedrock(model_id="meta.llama3-70b-instruct-v1:0", client=bedrock, model_kwargs={'max_gen_len': 2000})
+        return llm
+    except Exception as e:
+        print(f"Error initializing LLaMA 3 model: {str(e)}")
+        return None
 
-    # Display summary and results in the right side
-    with st.container():
-        if 'summary' in st.session_state:
-            st.subheader("Document Summary")
-            st.write(st.session_state.summary)
+# Load FAISS index for ICD codes
+try:
+    icd_vectorstore = FAISS.load_local("faiss_index", bedrock_embeddings, allow_dangerous_deserialization=True)
+except Exception as e:
+    print(f"Error loading FAISS index: {str(e)}")
+    icd_vectorstore = None
 
-            with st.spinner("Generating ICD codes and disease information..."):
-                llm = get_llama3_llm()
-                response = get_response_llm(llm, icd_vectorstore, st.session_state.summary)
-                st.subheader("Generated ICD Codes and Disease Information")
-                st.write(response)
+@app.route('/')
+def index():
+    return render_template('index.html')
 
-        elif 'user_query' in st.session_state:
-            with st.spinner("Generating ICD codes and disease information..."):
-                llm = get_llama3_llm()
-                response = get_response_llm(llm, icd_vectorstore, st.session_state.user_query)
-                st.subheader("Generated ICD Codes and Disease Information")
-                st.write(response)
+@app.route('/process_medical_coding', methods=['POST'])
+def api_process_medical_coding():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+    file = request.files['file']
+    result = process_medical_coding(file, icd_vectorstore, get_llama3_llm, bedrock_embeddings)
+    return jsonify(result)
+
+@app.route('/process_medical_query', methods=['POST'])
+def api_process_medical_query():
+    data = request.json
+    if 'query' not in data:
+        return jsonify({'error': 'No query provided'}), 400
+    result = process_medical_query(data['query'], icd_vectorstore, get_llama3_llm)
+    return jsonify(result)
+
+if __name__ == '__main__':
+    app.run(debug=True)

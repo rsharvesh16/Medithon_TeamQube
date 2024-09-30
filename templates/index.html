@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Medical Assistant</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #1a1a2e;
+            --text-color: #e0e0e0;
+            --primary-color: #16213e;
+            --secondary-color: #0f3460;
+            --accent-color: #e94560;
+        }
+        body {
+            font-family: 'Poppins', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+        }
+        .container {
+            display: flex;
+            min-height: 100vh;
+        }
+        .sidebar {
+            width: 300px;
+            background-color: var(--primary-color);
+            padding: 2rem;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+        }
+        .main-content {
+            flex-grow: 1;
+            padding: 2rem;
+            overflow-y: auto;
+        }
+        h1, h2, h3 {
+            color: var(--accent-color);
+        }
+        .operation-select {
+            margin-bottom: 2rem;
+        }
+        select, input[type="text"], input[type="file"], button {
+            width: 100%;
+            padding: 0.75rem;
+            margin-bottom: 1rem;
+            border: 1px solid var(--secondary-color);
+            border-radius: 4px;
+            background-color: var(--primary-color);
+            color: var(--text-color);
+            font-family: 'Poppins', sans-serif;
+        }
+        button {
+            background-color: var(--accent-color);
+            color: var(--bg-color);
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.1s;
+            font-weight: 600;
+        }
+        button:hover {
+            background-color: #d3405b;
+        }
+        button:active {
+            transform: scale(0.98);
+        }
+        .result-container {
+            background-color: var(--primary-color);
+            border-radius: 8px;
+            padding: 2rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-top: 2rem;
+        }
+        .footer {
+            text-align: center;
+            padding: 1rem;
+            background-color: var(--primary-color);
+            color: var(--text-color);
+        }
+        /* Animation for content loading */
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+        /* Loader Animation */
+        .loader {
+            border: 5px solid var(--primary-color);
+            border-top: 5px solid var(--accent-color);
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+            display: none;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+            }
+            .sidebar {
+                width: 100%;
+                padding: 1rem;
+            }
+            .main-content {
+                padding: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <h2>Medical Assistant</h2>
+            <div class="operation-select">
+                <select id="operation-select">
+                    <option value="medical-coding">Medical Coding</option>
+                    <option value="analytics">Analytics</option>
+                </select>
+            </div>
+            <div id="medical-coding-inputs">
+                <input type="file" id="file-upload" accept=".pdf,.png,.jpg,.jpeg">
+                <input type="text" id="medical-query" placeholder="Enter medical query">
+                <button id="process-input">Process Input</button>
+            </div>
+            <div id="analytics-inputs" style="display: none;">
+                <input type="text" id="disease-name" placeholder="Enter disease name">
+                <button id="generate-analytics">Generate Analytics</button>
+            </div>
+        </div>
+        <div class="main-content">
+            <div class="loader" id="loader"></div>
+            <div id="result-container" class="result-container">
+                <!-- Results will be displayed here -->
+            </div>
+        </div>
+    </div>
+    <div class="footer">
+        Made with Love by Team Cube ♥︎
+    </div>
+
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const operationSelect = document.getElementById('operation-select');
+            const medicalCodingInputs = document.getElementById('medical-coding-inputs');
+            const analyticsInputs = document.getElementById('analytics-inputs');
+            const resultContainer = document.getElementById('result-container');
+            const fileUpload = document.getElementById('file-upload');
+            const medicalQuery = document.getElementById('medical-query');
+            const processInputButton = document.getElementById('process-input');
+            const diseaseName = document.getElementById('disease-name');
+            const generateAnalyticsButton = document.getElementById('generate-analytics');
+            const loader = document.getElementById('loader');
+
+            operationSelect.addEventListener('change', function() {
+                if (this.value === 'medical-coding') {
+                    medicalCodingInputs.style.display = 'block';
+                    analyticsInputs.style.display = 'none';
+                } else {
+                    medicalCodingInputs.style.display = 'none';
+                    analyticsInputs.style.display = 'block';
+                }
+            });
+
+            processInputButton.addEventListener('click', function() {
+                const file = fileUpload.files[0];
+                const query = medicalQuery.value;
+
+                if (file) {
+                    processMedicalCoding(file);
+                } else if (query) {
+                    processMedicalQuery(query);
+                } else {
+                    alert('Please upload a file or enter a query.');
+                }
+            });
+
+            generateAnalyticsButton.addEventListener('click', function() {
+                const disease = diseaseName.value;
+                if (disease) {
+                    generateAnalytics(disease);
+                } else {
+                    alert('Please enter a disease name.');
+                }
+            });
+
+            function showLoader() {
+                loader.style.display = 'block';
+                resultContainer.innerHTML = '';
+            }
+
+            function hideLoader() {
+                loader.style.display = 'none';
+            }
+
+            function processMedicalCoding(file) {
+                showLoader();
+                const formData = new FormData();
+                formData.append('file', file);
+
+                fetch("{{ url_for('process_medical_coding') }}", {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        return response.text().then(text => {
+                            throw new Error(`HTTP error! status: ${response.status}, message: ${text}`);
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    hideLoader();
+                    displayResults(data);
+                })
+                .catch(error => {
+                    hideLoader();
+                    console.error('Error:', error);
+                    resultContainer.innerHTML = `<p>Error: ${error.message}</p>`;
+                    console.log('Error details:', {
+                        message: error.message,
+                        stack: error.stack,
+                        fileName: file.name,
+                        fileSize: file.size,
+                        fileType: file.type
+                    });
+                });
+            }
+
+            function processMedicalQuery(query) {
+                showLoader();
+                fetch("{{ url_for('process_medical_query') }}", {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ query: query })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    hideLoader();
+                    displayResults(data);
+                })
+                .catch(error => {
+                    hideLoader();
+                    console.error('Error:', error);
+                    resultContainer.innerHTML = `<p>Error: ${error.message}</p>`;
+                });
+            }
+
+            function generateAnalytics(disease) {
+                showLoader();
+                fetch("{{ url_for('generate_analytics') }}", {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ disease: disease })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    hideLoader();
+                    displayAnalytics(data);
+                })
+                .catch(error => {
+                    hideLoader();
+                    console.error('Error:', error);
+                    resultContainer.innerHTML = `<p>Error: ${error.message}</p>`;
+                });
+            }
+
+            function displayResults(data) {
+                resultContainer.innerHTML = '';
+                resultContainer.classList.add('fade-in');
+                
+                if (data.summary) {
+                    const summaryElement = document.createElement('div');
+                    summaryElement.innerHTML = `<h3>Document Summary</h3><p>${data.summary}</p>`;
+                    resultContainer.appendChild(summaryElement);
+                }
+
+                if (data.icd_codes) {
+                    const icdElement = document.createElement('div');
+                    icdElement.innerHTML = `<h3>ICD Codes and Disease Information</h3>${data.icd_codes}`;
+                    resultContainer.appendChild(icdElement);
+                }
+            }
+
+            function displayAnalytics(data) {
+                resultContainer.innerHTML = '';
+                resultContainer.classList.add('fade-in');
+
+                const analyticsElement = document.createElement('div');
+                analyticsElement.innerHTML = `<h3>Disease Analytics</h3>${data.analysis}`;
+                resultContainer.appendChild(analyticsElement);
+
+                // Create charts
+                createChart('age-distribution', data.age_distribution, 'Age Distribution');
+                createChart('gender-distribution', data.gender_distribution, 'Gender Distribution');
+                createChart('cost-breakdown', data.cost_breakdown, 'Treatment Cost Breakdown');
+                createChart('comorbidities', data.comorbidities, 'Common Comorbidities');
+            }
+
+            function createChart(elementId, data, title) {
+                const chartElement = document.createElement('div');
+                chartElement.id = elementId;
+                resultContainer.appendChild(chartElement);
+
+                const layout = {
+                    title: title,
+                    height: 400,
+                    margin: { t: 30 },
+                    paper_bgcolor: 'rgba(0,0,0,0)',
+                    plot_bgcolor: 'rgba(0,0,0,0)',
+                    font: { color: '#e0e0e0' }
+                };
+
+                if (data.type === 'bar') {
+                    Plotly.newPlot(elementId, [{
+                        x: data.labels,
+                        y: data.values,
+                        type: 'bar',
+                        marker: { color: '#e94560' }
+                    }], layout);
+                } else if (data.type === 'pie') {
+                    Plotly.newPlot(elementId, [{
+                        labels: data.labels,
+                        values: data.values,
+                        type: 'pie',
+                        marker: { colors: ['#e94560', '#0f3460', '#16213e', '#1a1a2e'] }
+                    }], layout);
+                }
+            }
+        });
+    </script>
+</body>
+</html>

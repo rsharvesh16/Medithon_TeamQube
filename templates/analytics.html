@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analytics Results</title>
+    <style>
+        body {
+            font-family: 'Aileron', sans-serif;
+            background-color: #f0f0f0;
+            padding: 20px;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            max-width: 800px;
+            margin: auto;
+        }
+        h3 {
+            color: #333;
+        }
+        .data-container {
+            margin-top: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        table, th, td {
+            border: 1px solid #ccc;
+        }
+        th, td {
+            padding: 10px;
+            text-align: left;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h3>Analytics for Disease: {{ disease_name }}</h3>
+        <p>{{ response }}</p>
+
+        <div class="data-container">
+            <h4>Age Group Data</h4>
+            <table>
+                <tr>
+                    <th>Age Group</th>
+                    <th>Percentage</th>
+                </tr>
+                {% for row in age_data %}
+                <tr>
+                    <td>{{ row['Age Group'] }}</td>
+                    <td>{{ row['Percentage'] }}%</td>
+                </tr>
+                {% endfor %}
+            </table>
+
+            <h4>Gender Data</h4>
+            <table>
+                <tr>
+                    <th>Gender</th>
+                    <th>Percentage</th>
+                </tr>
+                {% for row in gender_data %}
+                <tr>
+                    <td>{{ row['Gender'] }}</td>
+                    <td>{{ row['Percentage'] }}%</td>
+                </tr>
+                {% endfor %}
+            </table>
+
+            <h4>Cost Breakdown</h4>
+            <table>
+                <tr>
+                    <th>Category</th>
+                    <th>Cost</th>
+                </tr>
+                {% for row in cost_data %}
+                <tr>
+                    <td>{{ row['Category'] }}</td>
+                    <td>${{ row['Cost'] }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+
+            <h4>Comorbidities Data</h4>
+            <table>
+                <tr>
+                    <th>Comorbidity</th>
+                    <th>Percentage</th>
+                </tr>
+                {% for row in comorbidities_data %}
+                <tr>
+                    <td>{{ row['Comorbidity'] }}</td>
+                    <td>{{ row['Percentage'] }}%</td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+    </div>
+</body>
+</html>
