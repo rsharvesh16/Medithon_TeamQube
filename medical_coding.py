@@ -13,7 +13,8 @@ from langchain.chains.summarize import load_summarize_chain
 from langchain.schema import Document
 import streamlit_lottie as st_lottie
 import requests
-from streamlit_option_menu import option_menu
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -25,20 +26,13 @@ pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tessera
 def load_lottieurl(url: str):
     try:
         r = requests.get(url)
-        r.raise_for_status()  # Raises a HTTPError if the status is 4xx, 5xx
+        r.raise_for_status()
         return r.json()
     except Exception as e:
         st.error(f"Error loading Lottie animation: {str(e)}")
         return None
 
-# When using the function:
-lottie_medical = load_lottieurl("https://lottie.host/503a0611-68e0-469c-bbd4-91a9cf6b10c1/Ilr3bzdupn.json")
-if lottie_medical:
-    st_lottie.st_lottie(lottie_medical, speed=1, height=200, key="initial_medical_coding")
-else:
-    st.warning("Failed to load Lottie animation.")
-
-# OCR Function (unchanged)
+# OCR Function
 def perform_ocr(image):
     try:
         text = pytesseract.image_to_string(image)
@@ -49,25 +43,22 @@ def perform_ocr(image):
         logger.error(f"OCR failed: {str(e)}")
         return ""
 
-# PDF Processing Function (unchanged)
+# PDF Processing Function
 def process_pdf(file):
     text = ""
     try:
-        # Extract text using PyMuPDF
         pdf_document = fitz.open(stream=file.read(), filetype="pdf")
         for page in pdf_document:
             text += page.get_text()
         pdf_document.close()
         
-        # Perform OCR on all pages
-        file.seek(0)  # Reset file pointer
+        file.seek(0)
         pdf_bytes = file.read()
         images = convert_from_bytes(pdf_bytes)
         ocr_text = ""
         for image in images:
             ocr_text += perform_ocr(image) + "\n"
         
-        # Combine PyMuPDF text and OCR text
         combined_text = text + "\n" + ocr_text
         
         if not combined_text.strip():
@@ -79,7 +70,7 @@ def process_pdf(file):
         logger.error(f"PDF processing failed: {str(e)}")
         raise
 
-# Data Ingestion Implementation (unchanged)
+# Data Ingestion Implementation
 def data_ingestion(uploaded_file):
     if uploaded_file.name.endswith('.pdf'):
         text = process_pdf(uploaded_file)
@@ -98,7 +89,7 @@ def data_ingestion(uploaded_file):
     docs = text_splitter.split_text(text)
     return [Document(page_content=t) for t in docs]
 
-# Vector Embedding and Vector Store Implementation (unchanged)
+# Vector Embedding and Vector Store Implementation
 def get_vector_store(docs, bedrock_embeddings):
     try:
         embeddings = bedrock_embeddings.embed_documents([doc.page_content for doc in docs])
@@ -111,7 +102,7 @@ def get_vector_store(docs, bedrock_embeddings):
         st.error(f"Error creating vector store: {str(e)}")
         raise
 
-# Summarization function (unchanged)
+# Summarization function
 def summarize_documents(docs, llm):
     chain = load_summarize_chain(llm, chain_type="map_reduce")
     summary = chain.run(docs)
@@ -165,11 +156,12 @@ def get_response_llm(llm, vectorstore_faiss, query):
 def process_medical_coding(st, icd_vectorstore, get_llama3_llm, bedrock_embeddings):
     st.markdown("<h1 style='text-align: center; color: #4CAF50;'>Medical Coding Assistant</h1>", unsafe_allow_html=True)
 
-    # Load Lottie animation
-    lottie_medical = load_lottieurl("https://assets1.lottiefiles.com/packages/lf20_17lwcjll.json")
-    st_lottie.st_lottie(lottie_medical, speed=1, height=200, key="initial")
+    # lottie_medical = load_lottieurl("https://assets1.lottiefiles.com/packages/lf20_17lwcjll.json")
+    # if lottie_medical:
+    #     st_lottie.st_lottie(lottie_medical, speed=1, height=200, key="initial_medical_coding")
+    # else:
+    #     st.image("https://via.placeholder.com/400x200?text=Medical+Coding+Assistant", use_column_width=True)
 
-    # Create tabs for file upload and user query
     tab1, tab2 = st.tabs(["Upload Medical Report", "Enter Medical Query"])
 
     with tab1:
@@ -202,7 +194,6 @@ def process_medical_coding(st, icd_vectorstore, get_llama3_llm, bedrock_embeddin
         else:
             st.warning("Please upload a file or enter a query before processing.")
 
-    # Display summary and results
     if 'summary' in st.session_state or 'user_query' in st.session_state:
         st.markdown("<hr>", unsafe_allow_html=True)
         st.markdown("<h2 style='color: #4CAF50;'>Results</h2>", unsafe_allow_html=True)
@@ -211,29 +202,28 @@ def process_medical_coding(st, icd_vectorstore, get_llama3_llm, bedrock_embeddin
             with st.expander("Document Summary", expanded=True):
                 st.markdown(f"<div style='background-color: #2C3E50; padding: 20px; border-radius: 10px;'>{st.session_state.summary}</div>", unsafe_allow_html=True)
 
-        with st.spinner("Generating ICD codes and disease information..."):
-            llm = get_llama3_llm()
-            if 'summary' in st.session_state:
-                response = get_response_llm(llm, icd_vectorstore, st.session_state.summary)
-            else:
-                response = get_response_llm(llm, icd_vectorstore, st.session_state.user_query)
-            
-            st.markdown("<h3 style='color: #4CAF50;'>Generated ICD Codes and Disease Information</h3>", unsafe_allow_html=True)
-            st.markdown(f"<div style='background-color: #2C3E50; padding: 20px; border-radius: 10px;'>{response}</div>", unsafe_allow_html=True)
+        try:
+            with st.spinner("Generating ICD codes and disease information..."):
+                llm = get_llama3_llm()
+                if 'summary' in st.session_state:
+                    response = get_response_llm(llm, icd_vectorstore, st.session_state.summary)
+                elif 'user_query' in st.session_state:
+                    response = get_response_llm(llm, icd_vectorstore, st.session_state.user_query)
+                else:
+                    raise ValueError("No summary or query found in session state.")
+                
+                st.markdown("<h3 style='color: #4CAF50;'>Generated ICD Codes and Disease Information</h3>", unsafe_allow_html=True)
+                st.markdown(f"<div style='background-color: #2C3E50; padding: 20px; border-radius: 10px;'>{response}</div>", unsafe_allow_html=True)
+        except Exception as e:
+            logger.error(f"Error generating response: {str(e)}", exc_info=True)
+            st.error(f"An error occurred while generating the response: {str(e)}\n\nPlease try again or contact support if the issue persists.")
 
-    # Footer
     st.markdown("<br><hr>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center; color: #888;'>Made with ❤️ by Team Cube</p>", unsafe_allow_html=True)
-
-# Usage Example (Replace with actual function to get LLM)
-def get_llama3_llm():
-    from langchain.llms import OpenAI
-    return OpenAI(temperature=0.7)  # Placeholder for the actual LLM
 
 # Main function to run the Streamlit app
 if __name__ == "__main__":
     st.set_page_config(page_title="Medical Coding Assistant", layout="wide")
-    # Add custom CSS for dark theme
     st.markdown("""
     <style>
     .stApp {
@@ -256,7 +246,13 @@ if __name__ == "__main__":
     """, unsafe_allow_html=True)
     
     # Placeholder functions for demonstration
-    icd_vectorstore = None
-    bedrock_embeddings = None
+    # Replace these with your actual implementations
+    icd_vectorstore = None  # Your actual ICD vectorstore
+    bedrock_embeddings = None  # Your actual embedding model
+    
+    def get_llama3_llm():
+        # Your actual LLaMa3 model initialization
+        from langchain.llms import OpenAI
+        return OpenAI(temperature=0.7)
     
     process_medical_coding(st, icd_vectorstore, get_llama3_llm, bedrock_embeddings)
